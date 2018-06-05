@@ -1,2 +1,2 @@
-# Bounty
-Bounty tracking, calculation and internal transfer
+# NodeJs Batch Job
+NodeJS batch job will process transactions on Ethereum blockchain
