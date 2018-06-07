@@ -54,7 +54,7 @@ function execute(file){
         var diff = moment(exeTime).diff(now, 'seconds');
         if(diff > 0 && diff <= intervals * 60){
             setTimeout(()=>{
-                //makeTransaction(json[i]);
+                makeTransaction(json[i]);
                 console.log('Making transaction at ' + moment().format('DD/MMM/YYYY hh:mm:ss'));
             }, diff * 1000);
         }
