@@ -2,17 +2,18 @@
  * This app scan input exel file for the EXECUTE_ON column (date) every 15 mins
  * If the record date time is within 15 mins from now, then get that record into cron job to execute that record at that exact date time
  * We can real-time edit the input exel file (add rows) without having to exit app
- * The output of this app should be an exel file (with rows correspond to input file) and highlight failed transactions
+ * The output of this app should be an exel log file with 2 sheets: Succeed and Failed
  * Only ONE instance of this app should be run at a time
  */
 
 //libraries
+var fs = require('fs');
 var XLSX = require('xlsx');
 var moment = require('moment');
 var Job = require('cron').CronJob;;
 var Web3 = require('web3');
 var Tx = require('ethereumjs-tx');
-var web3 = new Web3('ws://127.0.0.1:8545');
+var web3 = new Web3('ws://127.0.0.1:8545'); //set the host here
 
 //variables
 var inputFile = 'test.xlsx';
@@ -55,7 +56,6 @@ function execute(file){
         if(diff > 0 && diff <= intervals * 60){
             setTimeout(()=>{
                 makeTransaction(json[i]);
-                console.log('Making transaction at ' + moment().format('DD/MMM/YYYY hh:mm:ss'));
             }, diff * 1000);
         }
     }
@@ -86,22 +86,67 @@ async function makeTransaction(data, count){
 
     web3.eth.sendSignedTransaction('0x' + serializedTx.toString('hex'))
         .then(receipt=>{
-            console.log(receipt);
-            /**
-             * TODO: handle logging successful transaction here
-             */
+            console.log('\x1b[32m%s\x1b[0m', 'Successful, trasaction time '+moment().format('DD/MMM/YYYY hh:mm:ss'));
+            log(data, receipt);
         })
         .catch(err=>{
             if(count == MAX_RETRIES){
-                console.log(err);
-                throw 'Maximum tries reached for ' + sender
-                /**
-                 * TODO: handle logging error here
-                 */
+                console.log('----------');
+                console.log('\x1b[41m%s\x1b[0m','An error occurred, please check log file, transaction time: '+ moment().format('DD/MMM/YYYY hh:mm:ss'));
+                console.log(err.message);
+                console.log('----------');
+                log(data, {status: false, error: err.message});
             }
-            makeTransaction(data, nonce + 1);
+            //retry {MAX_RETRIES} times if failed
+            makeTransaction(data, count + 1);
         })
+}
 
+//log to log.xlsx
+function log(data, result){
+    let wb
+    ,   fileName = 'log.xlsx'
+    ,   sheet
+    ,   range = {s: {c: 0, r: 0}, e: {c: 0, r: 0}};
+
+    if(fs.existsSync(fileName)){
+        wb = XLSX.readFile(fileName,{
+            dateNF : 'dd/mmm/yyyy h:mm:ss'
+        });
+
+        sheet = result['status'] == true ? wb.Sheets['Succeed'] : wb.Sheets['Failed'];
+
+        try{
+            range = XLSX.utils.decode_range(sheet['!ref']);
+        }
+        catch(err){
+            range = {s: {c: 0, r: 0}, e: {c: 0, r: 0}};
+        }
+    }
+    else{
+        wb = XLSX.utils.book_new();
+        wb.SheetNames = ['Succeed','Failed'];
+        sheet = result['status'] == true ? wb.Sheets['Succeed'] : wb.Sheets['Failed'] = {};
+    }
+
+    //build new json to append to existing json
+    var ext_columns = {
+        Status: result['status'], 
+        Transaction_hash: result['transactionHash'], 
+        Transaction_time: moment().format('DD/MMM/YYYY hh:mm:ss'), 
+        Error: result['Error']
+    };
+
+    //merge Jsons and convert to Array: {a: 1} + {b: 2} = [{a: 1, b: 2}]
+    var merged = new Array(Object.assign(data, ext_columns));
+
+    //add the result json to sheet, setting headers and origin start point depending on sheet's empty or not
+    XLSX.utils.sheet_add_json(sheet, merged, {
+        origin: Object.keys(sheet).length > 0 ? {c: range.s.c, r: range.e.r + 1} : {c: range.s.c, r: range.e.r},
+        skipHeader: Object.keys(sheet).length > 0 ? true : false
+    });
+    
+    XLSX.writeFile(wb, fileName);
 }
 
 //cron pattern that fires every {interval} minutes
@@ -110,7 +155,7 @@ var job = new Job({
     cronTime: pattern,
 
     onTick: function() {
-        console.log('Scanning ' + inputFile + ' at ' + moment().format('DD/MMM/YYYY hh:mm:ss'));
+        console.log('\x1b[36m%s\x1b[0m', 'Scanning ' + inputFile + ' at ' + moment().format('DD/MMM/YYYY hh:mm:ss'));
         execute(inputFile);
     },
 
