@@ -134,7 +134,7 @@ function log(data, result){
         Status: result['status'], 
         Transaction_hash: result['transactionHash'], 
         Transaction_time: moment().format('DD/MMM/YYYY hh:mm:ss'), 
-        Error: result['Error']
+        Error: result['error']
     };
 
     //merge Jsons and convert to Array: {a: 1} + {b: 2} = [{a: 1, b: 2}]
