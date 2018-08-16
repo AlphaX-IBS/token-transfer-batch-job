@@ -28,7 +28,7 @@ var web3 = new Web3('wss://ropsten.infura.io/_ws'); //set the host here
 var contractAbi = [{constant:!0,inputs:[],name:"gexOwner",outputs:[{name:"",type:"address"}],payable:!1,stateMutability:"view",type:"function"},{constant:!0,inputs:[],name:"gexAdmin",outputs:[{name:"",type:"address"}],payable:!1,stateMutability:"view",type:"function"},{constant:!0,inputs:[],name:"gex",outputs:[{name:"",type:"address"}],payable:!1,stateMutability:"view",type:"function"},{inputs:[{name:"_contractAddress",type:"address"}],payable:!1,stateMutability:"nonpayable",type:"constructor"},{constant:!1,inputs:[{name:"_toAddress",type:"address[]"},{name:"_tokenAmount",type:"uint256[]"}],name:"batchReservedTokenAlloc",outputs:[],payable:!1,stateMutability:"nonpayable",type:"function"},{constant:!1,inputs:[{name:"_to",type:"address[]"},{name:"_amount",type:"uint256[]"}],name:"batchTokenTransfer",outputs:[],payable:!1,stateMutability:"nonpayable",type:"function"},{constant:!1,inputs:[{name:"_to",type:"address"},{name:"_amount",type:"uint256"}],name:"tokenTransfer",outputs:[],payable:!1,stateMutability:"nonpayable",type:"function"}];
 var contractAddress = '0x72f666d014221aba42c645f13756637857823fd7';
 var sender = '0x36d2dbbf82cc5b6ce89a3001d87c1cdab7f34b0a'; //the address that call the contract
-var privateKey = new Buffer('E3D12B70D5BED0852CF3C179F7F31F49B91B480E58D9619C4BF10429B18B895B', 'hex'); //private key of sender
+var privateKey = new Buffer.from('E3D12B70D5BED0852CF3C179F7F31F49B91B480E58D9619C4BF10429B18B895B', 'hex'); //private key of sender
 /**----------------------------------- */
 
 //mysql database config
@@ -39,7 +39,9 @@ var connection = mysql.createConnection({
     database: 'airdrop'
 });
 var table = 'airdrop_addresses'; //3 columns: to_address, gex, status
-var limit = 10; //transactions per run, too high will exceeds gas limit
+var limit = 20; //transactions per run, too high will exceeds gas limit
+var gasLimit = 400000;
+var gasPrice = 2; //gwei
 /**----------------------------------- */
 
 //variables
@@ -178,8 +180,9 @@ function sendTransaction(nonce, addresses, values){
         nonce: nonce,
         from: sender,
         to: contractAddress,
-        gasPrice: web3.utils.toWei('100','gwei'),
-        gas: 300000,
+        //gasPrice: web3.utils.toHex(web3.eth.getGasPrice()),
+        gasPrice: web3.utils.toHex(web3.utils.toWei(gasPrice.toString(),'gwei')), //manually set gas price to 2gwei
+        gasLimit: web3.utils.toHex(gasLimit),
         data: contract.methods.batchTokenTransfer(addresses, values).encodeABI()
     }
       
@@ -206,7 +209,7 @@ function sendTransaction(nonce, addresses, values){
         // if(nonce < 100){
         //     sendTransaction(nonce + 1, addresses, values);
         // }
-        log({addr: addresses, val: values}, receipt ? receipt : {status: false, error: err});
+        log({addr: addresses, val: values}, receipt ? receipt : {status: false, error: JSON.stringify(err)});
         console.log('----------');
         console.log('\x1b[41m%s\x1b[0m','An error occurred, please check log file, transaction time: '+ moment().format('DD/MMM/YYYY hh:mm:ss'));
         console.log(err);
