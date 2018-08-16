@@ -107,10 +107,12 @@ else if (args[2] == 'validate') {
         if(err) throw err;
 
         // build array of valid eth address
-        // https://www.npmjs.com/package/ethereum-address
+        // https://web3js.readthedocs.io/en/1.0/web3-utils.html#isaddress
+        // Uppercase whole address string to avoid checksum
         for (i = 0; i < results.length; i++) {
             // if (ethereum_address.isAddress(results[i][COL_NAMES.TO_ADDRESS]) == false) {
-            if (web3.utils.isAddress(results[i][COL_NAMES.TO_ADDRESS]) == false) {
+            var upperAddress = results[i][COL_NAMES.TO_ADDRESS].toString().toUpperCase();
+            if (web3.utils.isAddress(upperAddress) == false) {
                 invalid_addresses.push(results[i][COL_NAMES.TO_ADDRESS]);
             }
         }
