@@ -13,8 +13,11 @@ var moment = require('moment');
 var Job = require('cron').CronJob;;
 var Web3 = require('web3');
 var mysql = require('mysql');
-var web3 = new Web3('wss://ropsten.infura.io/ws'); //set the host here
+var ethereum_address = require('ethereum-address');
+var web3 = new Web3('ws://ropsten.infura.io/ws'); //set the host here
+//ws://ropsten.infura.io/ws
 //ws://127.0.0.1:8545
+//ws://150.95.149.2:8546
 
 //contract config (testnet)
 //https://github.com/AlphaX-IBS/airdrop-contract/blob/develop/truffle/contracts/gex-alloc.sol
@@ -45,7 +48,7 @@ var intervals = 15; //minutes between each run, must be integer
 /*specify column headers names (case sensitive)*/
 var COL_NAMES = {
     "TO_ADDRESS" : "to_address",
-    "ETH" : "gex",
+    "GEX" : "gex",
     "STATUS": "status"
 }
 /*--------------------*/
@@ -74,7 +77,7 @@ if(args[2] == 'insert'){
     //loop through data to insert into table
     for(let i=0; i < rows; ++i){
         //console.log('insert into ' + table + ' select "' + json[i][COL_NAMES.TO_ADDRESS] + '", ' + json[i][COL_NAMES.ETH] + ', false' + ' from dual');
-        connection.query('insert into ' + table + ' select "' + json[i][COL_NAMES.TO_ADDRESS] + '", ' + json[i][COL_NAMES.ETH] + ', false' + ' from dual', (err, result, fields) => {
+        connection.query('insert into ' + table + ' select "' + json[i][COL_NAMES.TO_ADDRESS] + '", ' + json[i][COL_NAMES.GEX] + ', false, false from dual', (err, result, fields) => {
             if(err) throw err;
         })
     }
@@ -82,8 +85,44 @@ if(args[2] == 'insert'){
     connection.end(err => {
         if(err) console.log(err);
     });
+
+    console.log("Complete inserting!");
 }
 //`node airdrop.js`, select top 100 from table and make contract calls
+else if (args[2] == 'validate') {
+    var invalid_addresses = [];
+    var query;
+    var results = [];
+
+    // var check = web3.utils.isAddresss("0x96504844D3D5aC854D9E137dF614e680cafdcf66".toUpperCase());
+    var check = web3.utils.isAddresss('0xE2ac6211B5f0fe376618e06bfDB2EcB4fDAd8E01');
+
+    connection.connect(err => {
+        if(err) console.log(err);
+    });
+
+    connection.query('select to_address from ' + table, (err, results, field) => {
+        if(err) throw err;
+
+        // build array of valid eth address
+        // https://www.npmjs.com/package/ethereum-address
+        for (i = 0; i < results.length; i++) {
+            // if (ethereum_address.isAddress(results[i][COL_NAMES.TO_ADDRESS]) == false) {
+            if (web3.utils.isAddress(results[i][COL_NAMES.TO_ADDRESS]) == false) {
+                invalid_addresses.push(results[i][COL_NAMES.TO_ADDRESS]);
+            }
+        }
+
+        connection.query("UPDATE " + table + " SET valid = false WHERE to_address in (?) ", [invalid_addresses], (err, results, field) => {
+            if (err) throw err;
+            connection.end(err => {
+                if(err) console.log(err);
+            });
+        });
+
+        console.log("Complete validating!");
+    });
+}
 else if (!args[2]) {
     connection.connect(err => {
         if(err) console.log(err);
@@ -98,7 +137,7 @@ else if (!args[2]) {
         var addresses = [], values = [];
         for (i = 0; i < results.length; i++){
             addresses.push(results[i][COL_NAMES.TO_ADDRESS]);
-            values.push(results[i][COL_NAMES.ETH]);
+            values.push(results[i][COL_NAMES.GEX]);
         }
 
         //doc: https://web3js.readthedocs.io/en/1.0/web3-eth-contract.html#id12
