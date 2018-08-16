@@ -13,7 +13,7 @@ var moment = require('moment');
 var Job = require('cron').CronJob;;
 var Web3 = require('web3');
 var mysql = require('mysql');
-var ethereum_address = require('ethereum-address');
+//var ethereum_address = require('ethereum-address');
 var web3 = new Web3('ws://ropsten.infura.io/ws'); //set the host here
 //ws://ropsten.infura.io/ws
 //ws://127.0.0.1:8545
@@ -91,17 +91,15 @@ if(args[2] == 'insert'){
 //`node airdrop.js`, select top 100 from table and make contract calls
 else if (args[2] == 'validate') {
     var invalid_addresses = [];
-    var query;
-    var results = [];
 
     // var check = web3.utils.isAddresss("0x96504844D3D5aC854D9E137dF614e680cafdcf66".toUpperCase());
-    var check = web3.utils.isAddresss('0xE2ac6211B5f0fe376618e06bfDB2EcB4fDAd8E01');
+    //var check = web3.utils.isAddress('0x96504844D3D5aC854D9E137dF614e680cafdcf66');
 
     connection.connect(err => {
         if(err) console.log(err);
     });
 
-    connection.query('select to_address from ' + table, (err, results, field) => {
+    connection.query('select '+COL_NAMES.TO_ADDRESS+' from ' + table, (err, results, field) => {
         if(err) throw err;
 
         // build array of valid eth address
@@ -112,16 +110,24 @@ else if (args[2] == 'validate') {
                 invalid_addresses.push(results[i][COL_NAMES.TO_ADDRESS]);
             }
         }
+    });
 
+    if(invalid_addresses.length > 0){
         connection.query("UPDATE " + table + " SET valid = false WHERE to_address in (?) ", [invalid_addresses], (err, results, field) => {
             if (err) throw err;
-            connection.end(err => {
-                if(err) console.log(err);
-            });
         });
 
-        console.log("Complete validating!");
-    });
+        connection.end(err => {
+            if(err) console.log(err);
+            console.log("Completed validation! invalids found: " + invalid_addresses.length);
+        });
+    }
+    else{
+        connection.end(err => {
+            if(err) console.log(err);
+            console.log("Completed validation! No invalids found");
+        });
+    }
 }
 else if (!args[2]) {
     connection.connect(err => {
