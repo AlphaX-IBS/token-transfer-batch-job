@@ -10,7 +10,6 @@
 var fs = require('fs');
 var XLSX = require('xlsx');
 var moment = require('moment');
-var Job = require('cron').CronJob;;
 var Web3 = require('web3');
 var Tx = require('ethereumjs-tx');
 var mysql = require('mysql');
@@ -39,9 +38,7 @@ var connection = mysql.createConnection({
     database: 'airdrop'
 });
 var table = 'airdrop_addresses'; //3 columns: to_address, gex, status
-var limit = 20; //transactions per run, too high will exceeds gas limit
-var gasLimit = 400000;
-var gasPrice = 2; //gwei
+var limit = 100; //transactions per run, too high will exceeds gas limit
 /**----------------------------------- */
 
 //variables
@@ -144,8 +141,11 @@ else if (!args[2]) {
 
     var contract = new web3.eth.Contract(contractAbi, contractAddress);
 
-    connection.query('select * from ' + table + ' where '+COL_NAMES.STATUS+' = false and '+COL_NAMES.VALID+' = true limit ' + limit, (err, results, field) => {
-        if(err) throw err;
+    connection.query('select * from ' + table + ' where '+COL_NAMES.STATUS+' = false and '+COL_NAMES.VALID+' = true limit ' + limit, async (err, results) => {
+        if(err) {
+            connection.destroy();
+            throw err;
+        }
 
         //build array to pass to contract
         var addresses = [], values = [];
@@ -156,64 +156,105 @@ else if (!args[2]) {
 
         //call batchTokenTransfer from contract, note that the contract must have enough gex balance first (call allocateToken from gex to this contract)
         //call using sendSignedTransaction method, infura doesnt support other methods
-        web3.eth.getTransactionCount(sender).then(nonce => {
-            sendTransaction(nonce, addresses, values);
-        })
+        let nonce = await web3.eth.getTransactionCount(sender)
+        let logs = await sendTransaction(nonce, addresses, values);
+        if(logs && logs.length > 0){
+            //update successful trans
+            let rows = await updateAddresses(logs);
+            if(rows == 0){
+                //0 updates
+
+                connection.destroy();
+            }
+        }
+        else{
+            console.log('No transaction');
+            connection.destroy();
+        }
     })
-    
-    //cron pattern that fires every {interval} minutes
-    // var pattern = '*/'+intervals +' * * * *';
-    // var job = new Job({
-    //     cronTime: pattern,
-    
-    //     onTick: function() {
-    //         console.log('\x1b[36m%s\x1b[0m', 'Scanning ' + inputFile + ' at ' + moment().format('DD/MMM/YYYY hh:mm:ss'));
-    //         execute(inputFile);
-    //     },
-    
-    //     runOnInit: true
-    // });
 }
 
-function sendTransaction(nonce, addresses, values){
-    var rawTx = {
+async function sendTransaction(nonce, addresses, values){
+    let gasPrice = await web3.eth.getGasPrice();
+    console.log('\x1b[36m%s\x1b[0m', 'gasPrice: ' + gasPrice);
+    if(gasPrice > web3.utils.toWei('20','gwei')){
+        console.log('\x1b[41m%s\x1b[0m','gasPrice exceeds allowance');
+        //gasPrice = web3.utils.toWei('2','gwei');
+        return false;
+    }
+
+    let gasLimit = await web3.eth.estimateGas({
+        from: sender,
+        to: contractAddress,
+        data: contract.methods.batchTokenTransfer(addresses, values).encodeABI()
+    });
+    console.log('\x1b[36m%s\x1b[0m', 'Original gas limit estimate: ' + gasLimit);
+    gasLimit = Math.round(gasLimit * 1.5);
+
+    let rawTx = {
         nonce: nonce,
         from: sender,
         to: contractAddress,
-        //gasPrice: web3.utils.toHex(web3.eth.getGasPrice()),
-        gasPrice: web3.utils.toHex(web3.utils.toWei(gasPrice.toString(),'gwei')), //manually set gas price to 2gwei
+        gasPrice: web3.utils.toHex(gasPrice.toString()), //manually set gas price to 2gwei
         gasLimit: web3.utils.toHex(gasLimit),
         data: contract.methods.batchTokenTransfer(addresses, values).encodeABI()
     }
       
-    var tx = new Tx(rawTx);
+    let tx = new Tx(rawTx);
     tx.sign(privateKey);
       
-    var serializedTx = tx.serialize();
-    web3.eth.sendSignedTransaction('0x' + serializedTx.toString('hex'))
-    .on('transactionHash', hash => {
-        console.log('----------');
-        console.log('transaction hash: ' + hash);
-        console.log('----------');
-    })
+    let serializedTx = tx.serialize();
+    let receipt = await web3.eth.sendSignedTransaction('0x' + serializedTx.toString('hex'))
     .on('receipt', (receipt) => {
-        log({addr: addresses, val: values}, receipt);
+        log({addr: addresses.toString(), val: values.toString()}, receipt);
         console.log('----------');
-        console.log('transaction mined!');
+        console.log('\x1b[35m%s\x1b[0m','transaction mined!');
         console.log('----------');
-        /**
-         * TODO: somehow catch all successful transactions and update table status to true
-         */
+
+        logs = receipt.logs;
+    })
+    .on('transactionHash', hash => {
+        console.log('\x1b[36m%s\x1b[0m','----------');
+        console.log('\x1b[35m%s\x1b[0m','transaction hash: ' + hash);
+        console.log('\x1b[36m%s\x1b[0m','----------');
     })
     .on('error', (err, receipt) => {
         // if(nonce < 100){
         //     sendTransaction(nonce + 1, addresses, values);
         // }
-        log({addr: addresses, val: values}, receipt ? receipt : {status: false, error: JSON.stringify(err)});
+        log({addr: addresses.toString(), val: values.toString()}, receipt ? receipt : {status: false, error: JSON.stringify(err)});
         console.log('----------');
         console.log('\x1b[41m%s\x1b[0m','An error occurred, please check log file, transaction time: '+ moment().format('DD/MMM/YYYY hh:mm:ss'));
         console.log(err);
         console.log('----------');
+    });
+
+    return receipt.logs;
+}
+
+function updateAddresses(logs){
+    return new Promise((resolve, reject) => {
+        let addresses = [];
+        for(var i = 0; i < logs.length; i++){
+            addresses.push(logs[i].address);
+        }
+        if(addresses.length > 0){
+            console.log('updating table...');
+            connection.query("UPDATE " + table + " SET "+COL_NAMES.STATUS+" = TRUE where "+COL_NAMES.TO_ADDRESS+" in (?) ",[addresses], (err, result, fields) => {
+                if(err) {
+                    connection.destroy();
+                    reject(err);
+                }
+                console.log(fields);
+                console.log('....');
+                console.log(result);
+                console.log('\x1b[32m%s\x1b[0m', result.affectedRows + " record(s) updated");
+                resolve(result.affectedRows);
+            });
+        }
+        else{
+            resolve(0);
+        }
     })
 }
 
