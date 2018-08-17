@@ -157,10 +157,10 @@ else if (!args[2]) {
         //call batchTokenTransfer from contract, note that the contract must have enough gex balance first (call allocateToken from gex to this contract)
         //call using sendSignedTransaction method, infura doesnt support other methods
         let nonce = await web3.eth.getTransactionCount(sender)
-        let logs = await sendTransaction(nonce, addresses, values);
-        if(logs && logs.length > 0){
+        let status = await sendTransaction(nonce, addresses, values);
+        if(status){
             //update successful trans
-            let rows = await updateAddresses(logs);
+            let rows = await updateAddresses(addresses);
             if(rows == 0){
                 //0 updates
 
@@ -210,8 +210,9 @@ async function sendTransaction(nonce, addresses, values){
         console.log('----------');
         console.log('\x1b[35m%s\x1b[0m','transaction mined!');
         console.log('----------');
-
-        logs = receipt.logs;
+        /**
+         * receipt.logs is only showing address 0x11a15c863100B00B1Ad7256EE1f9017B30e0cE8A which is the GEX contract
+         */
     })
     .on('transactionHash', hash => {
         console.log('\x1b[36m%s\x1b[0m','----------');
@@ -229,28 +230,22 @@ async function sendTransaction(nonce, addresses, values){
         console.log('----------');
     });
 
-    return receipt.logs;
+    return receipt.status;
 }
 
-function updateAddresses(logs){
+function updateAddresses(addresses){
     return new Promise((resolve, reject) => {
-        let addresses = [];
-        for(var i = 0; i < logs.length; i++){
-            addresses.push(logs[i].address);
-        }
         if(addresses.length > 0){
             console.log('updating table...');
-            connection.query("UPDATE " + table + " SET "+COL_NAMES.STATUS+" = TRUE where "+COL_NAMES.TO_ADDRESS+" in (?) ",[addresses], (err, result, fields) => {
+            let query = connection.query("UPDATE " + table + " SET "+COL_NAMES.STATUS+" = TRUE where "+COL_NAMES.TO_ADDRESS+" in (?) ",[addresses], (err, result, fields) => {
                 if(err) {
                     connection.destroy();
                     reject(err);
                 }
-                console.log(fields);
-                console.log('....');
-                console.log(result);
                 console.log('\x1b[32m%s\x1b[0m', result.affectedRows + " record(s) updated");
                 resolve(result.affectedRows);
             });
+            //console.log(query.sql);
         }
         else{
             resolve(0);
